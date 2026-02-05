@@ -1,0 +1,5 @@
+site_name: mmbiometric
+nav:
+  - Home: docs/index.md
+  - Architecture: docs/architecture.md
+  - Reproducibility: docs/reproducibility.md

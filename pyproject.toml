@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mmbiometric"
+version = "0.1.0"
+description = "Multimodal biometric (iris + fingerprint) training/inference pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.1",
+  "torchvision>=0.16",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pyarrow>=14.0",
+  "pillow>=10.0",
+  "tqdm>=4.66",
+  "pyyaml>=6.0",
+  "kagglehub>=0.2.5",
+  "fastapi>=0.110",
+  "uvicorn>=0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "mypy>=1.8",
+  "ruff>=0.6",
+  "types-PyYAML",
+  "ipykernel",
+]
+
+# Optional: install only if you want to use the Ray-based distributed pipeline.
+ray = [
+	"ray[train]>=2.3.0",
+]
+
+# Optional: if you want Hydra-style config composition.
+hydra = [
+	"hydra-core>=1.3",
+	"omegaconf>=2.3",
+]
+
+[project.scripts]
+mmbiometric-pipeline = "mmbiometric.cli_pipeline:main"
+mmbiometric-build-manifest = "mmbiometric.cli:build_manifest_main"
+mmbiometric-train = "mmbiometric.cli:train_main"
+mmbiometric-predict-one = "mmbiometric.cli_infer:predict_one_main"
+mmbiometric-predict-batch = "mmbiometric.cli_infer:predict_batch_main"
+mmbiometric-ray-preprocess = "mmbiometric.cli_ray:preprocess_main"
+mmbiometric-ray-train = "mmbiometric.cli_ray:train_main"
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E","F","I","B","UP","N","W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_generics = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+addopts = "-q --disable-warnings"
+testpaths = ["tests"]
