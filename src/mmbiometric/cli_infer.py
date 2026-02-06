@@ -1,11 +1,9 @@
 """Local (no-Ray) inference CLIs.
 
-These commands use artifacts produced by the local training CLI:
+Artifacts expected inside --run-dir:
 - best.pt
 - labels.json (index -> subject_id)
 - model_metadata.json
-
-They are intentionally lightweight so they work in Docker/WSL2 and CI.
 """
 
 from __future__ import annotations
@@ -19,9 +17,23 @@ import pandas as pd
 from mmbiometric.inference.predictor import Predictor
 
 
+def _resolve_checkpoint(run_dir: Path, checkpoint: Path | None) -> Path:
+    """
+    If checkpoint is relative, interpret it relative to run_dir (NOT repo root).
+    """
+    run_dir = run_dir.resolve()
+    if checkpoint is None:
+        ckpt = run_dir / "best.pt"
+    else:
+        checkpoint = Path(checkpoint)
+        ckpt = (run_dir / checkpoint) if not checkpoint.is_absolute() else checkpoint
+    return ckpt.resolve()
+
+
 def _load_artifacts(run_dir: Path, checkpoint: Path | None) -> tuple[Path, dict[int, str], dict]:
     run_dir = run_dir.resolve()
-    ckpt_path = (checkpoint or (run_dir / "best.pt")).resolve()
+    ckpt_path = _resolve_checkpoint(run_dir, checkpoint)
+
     if not ckpt_path.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {ckpt_path}. Expected best.pt in {run_dir} or pass --checkpoint"
@@ -29,20 +41,16 @@ def _load_artifacts(run_dir: Path, checkpoint: Path | None) -> tuple[Path, dict[
 
     labels_path = run_dir / "labels.json"
     if not labels_path.exists():
-        raise FileNotFoundError(
-            f"labels.json not found in {run_dir}. Re-run training (it should write labels.json)."
-        )
+        raise FileNotFoundError(f"labels.json not found in {run_dir}.")
+
     idx_to_label_raw = json.loads(labels_path.read_text(encoding="utf-8"))
-    # JSON keys are strings
     idx_to_label = {int(k): v for k, v in idx_to_label_raw.items()}
 
     meta_path = run_dir / "model_metadata.json"
     if not meta_path.exists():
-        raise FileNotFoundError(
-            f"model_metadata.json not found in {run_dir}. Re-run training (it should write model_metadata.json)."
-        )
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        raise FileNotFoundError(f"model_metadata.json not found in {run_dir}.")
 
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
     return ckpt_path, idx_to_label, meta
 
 
@@ -51,7 +59,8 @@ def predict_one_main() -> None:
     p.add_argument("--run-dir", required=True, help="Training run dir containing best.pt, labels.json, model_metadata.json")
     p.add_argument("--iris", required=True, help="Path to iris image")
     p.add_argument("--fingerprint", required=True, help="Path to fingerprint image")
-    p.add_argument("--checkpoint", default=None, help="Optional checkpoint path (defaults to <run-dir>/best.pt)")
+    p.add_argument("--checkpoint", default=None, help="Optional checkpoint (relative to run-dir if not absolute)")
+    p.add_argument("--topk", type=int, default=0, help="If >0, also print top-k probabilities")
 
     args = p.parse_args()
 
@@ -69,15 +78,20 @@ def predict_one_main() -> None:
     )
 
     pred = predictor.predict(iris_path=Path(args.iris), fingerprint_path=Path(args.fingerprint))
-    print(json.dumps({"predicted_subject_id": pred}, indent=2))
+
+    out = {"predicted_subject_id": pred}
+    if args.topk and args.topk > 0:
+        out["topk"] = predictor.predict_topk(Path(args.iris), Path(args.fingerprint), k=args.topk)
+
+    print(json.dumps(out, indent=2))
 
 
 def predict_batch_main() -> None:
     p = argparse.ArgumentParser(description="Run batch inference from a manifest.parquet file.")
     p.add_argument("--run-dir", required=True, help="Training run dir containing best.pt, labels.json, model_metadata.json")
-    p.add_argument("--manifest", required=True, help="Path to manifest.parquet with columns: modality, subject_id, filepath")
+    p.add_argument("--manifest", required=True, help="manifest.parquet with columns: modality, subject_id, filepath")
     p.add_argument("--out", required=True, help="Output parquet path for predictions")
-    p.add_argument("--checkpoint", default=None, help="Optional checkpoint path (defaults to <run-dir>/best.pt)")
+    p.add_argument("--checkpoint", default=None, help="Optional checkpoint (relative to run-dir if not absolute)")
 
     args = p.parse_args()
 
@@ -100,7 +114,6 @@ def predict_batch_main() -> None:
     if missing:
         raise ValueError(f"Manifest is missing columns: {sorted(missing)}")
 
-    # Build pairs by subject_id. For each subject, pick the first iris and first fingerprint.
     iris_df = df[df["modality"] == "iris"].sort_values("filepath")
     fin_df = df[df["modality"] == "fingerprint"].sort_values("filepath")
 
@@ -118,12 +131,14 @@ def predict_batch_main() -> None:
     preds = []
     for row in pairs.itertuples(index=False):
         pred = predictor.predict(iris_path=Path(row.iris_path), fingerprint_path=Path(row.fingerprint_path))
-        preds.append({
-            "subject_id": row.subject_id,
-            "iris_path": row.iris_path,
-            "fingerprint_path": row.fingerprint_path,
-            "predicted_subject_id": pred,
-        })
+        preds.append(
+            {
+                "subject_id": row.subject_id,
+                "iris_path": row.iris_path,
+                "fingerprint_path": row.fingerprint_path,
+                "predicted_subject_id": pred,
+            }
+        )
 
     out_df = pd.DataFrame(preds)
     out_path = Path(args.out)
