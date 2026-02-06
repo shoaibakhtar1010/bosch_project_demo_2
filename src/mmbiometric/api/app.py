@@ -10,7 +10,10 @@ import torch
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from PIL import Image
 
-from mmbiometric.inference.predictor import Predictor
+# Use the lightweight predictor implementation from inference.predict_one.  This
+# supports loading checkpoints using explicit hyperparameters and predicts on
+# PIL images.
+from mmbiometric.inference.predict_one import Predictor
 
 app = FastAPI(title="mmbiometric inference")
 
@@ -43,13 +46,14 @@ def _load_predictor() -> Predictor:
     dropout = float(meta.get("dropout") or os.environ.get("DROPOUT", "0.1"))
     image_size = int(meta.get("image_size") or os.environ.get("IMAGE_SIZE", "224"))
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Determine device lazily; pass as string to Predictor.load for compatibility
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     return Predictor.load(
         ckpt_path=ckpt,
+        idx_to_label=idx_to_label,
         backbone=backbone,
         embedding_dim=embedding_dim,
         dropout=dropout,
-        idx_to_label=idx_to_label,
         image_size=image_size,
         device=device,
     )

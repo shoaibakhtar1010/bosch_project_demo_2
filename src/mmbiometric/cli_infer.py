@@ -1,147 +1,171 @@
-"""Local (no-Ray) inference CLIs.
-
-Artifacts expected inside --run-dir:
-- best.pt
-- labels.json (index -> subject_id)
-- model_metadata.json
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 from mmbiometric.inference.predictor import Predictor
 
 
-def _resolve_checkpoint(run_dir: Path, checkpoint: Path | None) -> Path:
-    """
-    If checkpoint is relative, interpret it relative to run_dir (NOT repo root).
-    """
-    run_dir = run_dir.resolve()
-    if checkpoint is None:
-        ckpt = run_dir / "best.pt"
-    else:
-        checkpoint = Path(checkpoint)
-        ckpt = (run_dir / checkpoint) if not checkpoint.is_absolute() else checkpoint
-    return ckpt.resolve()
+def _p(path_str: str) -> Path:
+    return Path(path_str)
 
 
-def _load_artifacts(run_dir: Path, checkpoint: Path | None) -> tuple[Path, dict[int, str], dict]:
-    run_dir = run_dir.resolve()
-    ckpt_path = _resolve_checkpoint(run_dir, checkpoint)
+def predict_one_main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-dir", required=True, help="Training run dir (contains best.pt, labels.json, model_metadata.json)")
+    parser.add_argument("--iris", required=True, help="Path to iris image")
+    parser.add_argument("--fingerprint", required=True, help="Path to fingerprint image")
+    parser.add_argument("--checkpoint", default=None, help="Optional checkpoint filename/path (default: best.pt in run-dir)")
+    parser.add_argument("--topk", type=int, default=None, help="Optional top-k predictions to include")
+    parser.add_argument("--device", default=None, help="cpu or cuda (default: auto)")
+    args = parser.parse_args()
 
-    if not ckpt_path.exists():
-        raise FileNotFoundError(
-            f"Checkpoint not found: {ckpt_path}. Expected best.pt in {run_dir} or pass --checkpoint"
-        )
-
-    labels_path = run_dir / "labels.json"
-    if not labels_path.exists():
-        raise FileNotFoundError(f"labels.json not found in {run_dir}.")
-
-    idx_to_label_raw = json.loads(labels_path.read_text(encoding="utf-8"))
-    idx_to_label = {int(k): v for k, v in idx_to_label_raw.items()}
-
-    meta_path = run_dir / "model_metadata.json"
-    if not meta_path.exists():
-        raise FileNotFoundError(f"model_metadata.json not found in {run_dir}.")
-
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    return ckpt_path, idx_to_label, meta
-
-
-def predict_one_main() -> None:
-    p = argparse.ArgumentParser(description="Run single-pair inference (iris + fingerprint).")
-    p.add_argument("--run-dir", required=True, help="Training run dir containing best.pt, labels.json, model_metadata.json")
-    p.add_argument("--iris", required=True, help="Path to iris image")
-    p.add_argument("--fingerprint", required=True, help="Path to fingerprint image")
-    p.add_argument("--checkpoint", default=None, help="Optional checkpoint (relative to run-dir if not absolute)")
-    p.add_argument("--topk", type=int, default=0, help="If >0, also print top-k probabilities")
-
-    args = p.parse_args()
-
-    run_dir = Path(args.run_dir)
-    ckpt_path, idx_to_label, meta = _load_artifacts(run_dir, Path(args.checkpoint) if args.checkpoint else None)
+    run_dir = _p(args.run_dir)
+    iris_path = _p(args.iris)
+    fp_path = _p(args.fingerprint)
 
     predictor = Predictor.load(
-        ckpt_path=ckpt_path,
-        idx_to_label=idx_to_label,
-        backbone=meta["backbone"],
-        embedding_dim=int(meta["embedding_dim"]),
-        dropout=float(meta["dropout"]),
-        image_size=int(meta["image_size"]),
-        device=meta.get("device", "cpu"),
+        run_dir=run_dir,
+        checkpoint=_p(args.checkpoint) if args.checkpoint else None,
+        device=args.device,
     )
 
-    pred = predictor.predict(iris_path=Path(args.iris), fingerprint_path=Path(args.fingerprint))
-
-    out = {"predicted_subject_id": pred}
-    if args.topk and args.topk > 0:
-        out["topk"] = predictor.predict_topk(Path(args.iris), Path(args.fingerprint), k=args.topk)
+    out: Dict[str, Any] = {"predicted_subject_id": predictor.predict(iris_path, fp_path)}
+    if args.topk is not None and args.topk > 1:
+        out["topk"] = predictor.predict_topk(iris_path, fp_path, k=args.topk)
 
     print(json.dumps(out, indent=2))
+    return 0
 
 
-def predict_batch_main() -> None:
-    p = argparse.ArgumentParser(description="Run batch inference from a manifest.parquet file.")
-    p.add_argument("--run-dir", required=True, help="Training run dir containing best.pt, labels.json, model_metadata.json")
-    p.add_argument("--manifest", required=True, help="manifest.parquet with columns: modality, subject_id, filepath")
-    p.add_argument("--out", required=True, help="Output parquet path for predictions")
-    p.add_argument("--checkpoint", default=None, help="Optional checkpoint (relative to run-dir if not absolute)")
-
-    args = p.parse_args()
-
-    run_dir = Path(args.run_dir)
-    ckpt_path, idx_to_label, meta = _load_artifacts(run_dir, Path(args.checkpoint) if args.checkpoint else None)
-
-    predictor = Predictor.load(
-        ckpt_path=ckpt_path,
-        idx_to_label=idx_to_label,
-        backbone=meta["backbone"],
-        embedding_dim=int(meta["embedding_dim"]),
-        dropout=float(meta["dropout"]),
-        image_size=int(meta["image_size"]),
-        device=meta.get("device", "cpu"),
-    )
-
-    df = pd.read_parquet(args.manifest)
-    required = {"modality", "subject_id", "filepath"}
+def _predict_batch_from_paired_manifest(
+    predictor: Predictor,
+    df: pd.DataFrame,
+    topk: Optional[int],
+) -> pd.DataFrame:
+    required = {"iris_path", "fingerprint_path"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Manifest is missing columns: {sorted(missing)}")
+        raise ValueError(f"Manifest missing required columns for paired format: {sorted(missing)}")
 
-    iris_df = df[df["modality"] == "iris"].sort_values("filepath")
-    fin_df = df[df["modality"] == "fingerprint"].sort_values("filepath")
+    preds: List[Dict[str, Any]] = []
+    for _, row in df.iterrows():
+        iris_path = Path(str(row["iris_path"]))
+        fp_path = Path(str(row["fingerprint_path"]))
+        rec: Dict[str, Any] = {}
 
-    iris_pick = iris_df.groupby("subject_id", as_index=False).first()[["subject_id", "filepath"]].rename(
-        columns={"filepath": "iris_path"}
+        if "subject_id" in df.columns:
+            rec["subject_id"] = str(row["subject_id"])
+
+        rec["predicted_subject_id"] = predictor.predict(iris_path, fp_path)
+
+        # For parquet compatibility, store topk as JSON text
+        if topk is not None and topk > 1:
+            rec["topk_json"] = json.dumps(predictor.predict_topk(iris_path, fp_path, k=topk))
+
+        preds.append(rec)
+
+    return pd.DataFrame(preds)
+
+
+def _predict_batch_from_long_manifest(
+    predictor: Predictor,
+    df: pd.DataFrame,
+    topk: Optional[int],
+) -> pd.DataFrame:
+    """
+    Supports a 'long' manifest with columns:
+      - subject_id
+      - filepath
+      - modality  (values like iris / fingerprint)
+    We pair first iris + first fingerprint per subject_id.
+    """
+    required = {"subject_id", "filepath", "modality"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Manifest missing required columns for long format: {sorted(missing)}")
+
+    # Normalize modality strings
+    tmp = df.copy()
+    tmp["modality"] = tmp["modality"].astype(str).str.lower()
+
+    preds: List[Dict[str, Any]] = []
+    for subject_id, g in tmp.groupby("subject_id"):
+        iris_rows = g[g["modality"].str.contains("iris", na=False)]
+        fp_rows = g[g["modality"].str.contains("finger", na=False)]
+
+        if len(iris_rows) == 0 or len(fp_rows) == 0:
+            continue
+
+        iris_path = Path(str(iris_rows.iloc[0]["filepath"]))
+        fp_path = Path(str(fp_rows.iloc[0]["filepath"]))
+
+        rec: Dict[str, Any] = {"subject_id": str(subject_id)}
+        rec["predicted_subject_id"] = predictor.predict(iris_path, fp_path)
+
+        if topk is not None and topk > 1:
+            rec["topk_json"] = json.dumps(predictor.predict_topk(iris_path, fp_path, k=topk))
+
+        preds.append(rec)
+
+    return pd.DataFrame(preds)
+
+
+def predict_batch_main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--manifest", required=True, help="Manifest parquet/csv")
+    parser.add_argument("--out", required=True, help="Output parquet/csv")
+    parser.add_argument("--checkpoint", default=None)
+    parser.add_argument("--topk", type=int, default=None)
+    parser.add_argument("--device", default=None)
+    args = parser.parse_args()
+
+    run_dir = _p(args.run_dir)
+    manifest_path = _p(args.manifest)
+    out_path = _p(args.out)
+
+    predictor = Predictor.load(
+        run_dir=run_dir,
+        checkpoint=_p(args.checkpoint) if args.checkpoint else None,
+        device=args.device,
     )
-    fin_pick = fin_df.groupby("subject_id", as_index=False).first()[["subject_id", "filepath"]].rename(
-        columns={"filepath": "fingerprint_path"}
-    )
 
-    pairs = iris_pick.merge(fin_pick, on="subject_id", how="inner")
-    if pairs.empty:
-        raise ValueError("No subject_id had both iris and fingerprint entries. Check your manifest.")
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
-    preds = []
-    for row in pairs.itertuples(index=False):
-        pred = predictor.predict(iris_path=Path(row.iris_path), fingerprint_path=Path(row.fingerprint_path))
-        preds.append(
-            {
-                "subject_id": row.subject_id,
-                "iris_path": row.iris_path,
-                "fingerprint_path": row.fingerprint_path,
-                "predicted_subject_id": pred,
-            }
+    if manifest_path.suffix.lower() in {".parquet"}:
+        df = pd.read_parquet(manifest_path)
+    elif manifest_path.suffix.lower() in {".csv"}:
+        df = pd.read_csv(manifest_path)
+    else:
+        raise ValueError("Manifest must be .parquet or .csv")
+
+    cols = set(df.columns)
+    if {"iris_path", "fingerprint_path"}.issubset(cols):
+        out_df = _predict_batch_from_paired_manifest(predictor, df, args.topk)
+    elif {"subject_id", "filepath", "modality"}.issubset(cols):
+        out_df = _predict_batch_from_long_manifest(predictor, df, args.topk)
+    else:
+        raise ValueError(
+            "Unsupported manifest schema.\n"
+            "Supported:\n"
+            "  A) paired: subject_id, iris_path, fingerprint_path\n"
+            "  B) long:   subject_id, filepath, modality\n"
+            f"Found columns: {sorted(cols)}"
         )
 
-    out_df = pd.DataFrame(preds)
-    out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_parquet(out_path, index=False)
-    print(f"[OK] Wrote predictions: {out_path}")
+    if out_path.suffix.lower() == ".parquet":
+        out_df.to_parquet(out_path, index=False)
+    elif out_path.suffix.lower() == ".csv":
+        out_df.to_csv(out_path, index=False)
+    else:
+        raise ValueError("Output must end with .parquet or .csv")
+
+    print(f"[OK] wrote predictions: {out_path}  rows={len(out_df)}")
+    return 0
