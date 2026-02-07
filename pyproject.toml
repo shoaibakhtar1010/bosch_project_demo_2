@@ -56,7 +56,17 @@ mmbiometric-ray-train = "mmbiometric.cli_ray:train_main"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-select = ["E","F","I","B","UP","N","W"]
+# Exclude Jupyter notebooks and other non-Python files from linting.  Without
+# this, Ruff attempts to parse notebooks in the `notebooks/` directory,
+# causing invalid-syntax errors when encountering notebook metadata.
+exclude = ["notebooks"]
+
+# The `lint` subtable replaces deprecated top-level keys such as `select`
+# and `ignore`.  For backwards compatibility, Ruff will still read the
+# top-level keys, but switching to the `lint.*` format silences deprecation
+# warnings.  See https://docs.astral.sh/ruff/settings/#lint-settings
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
 ignore = ["E501"]
 
 [tool.mypy]

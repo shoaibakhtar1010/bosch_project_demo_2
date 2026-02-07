@@ -17,7 +17,8 @@ jobs:
           pip install -e ".[dev]"
       - name: lint
         run: |
-          ruff check .
+          # Use --force-exclude so Ruff respects exclusions defined in pyproject.toml
+          ruff check --force-exclude .
           ruff format --check .
       - name: typecheck
         run: |
