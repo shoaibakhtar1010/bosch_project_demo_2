@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-# Standard library imports
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 
-# Third‑party imports
 import pandas as pd
 from PIL import Image
 import torch

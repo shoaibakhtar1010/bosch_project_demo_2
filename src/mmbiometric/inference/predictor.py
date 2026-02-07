@@ -226,7 +226,7 @@ class Predictor:
         vals, idxs = torch.topk(probs, k=k)
 
         out: list[dict[str, Any]] = []
-        for score, idx in zip(vals.tolist(), idxs.tolist()):
+        for score, idx in zip(vals.tolist(), idxs.tolist(), strict=False):
             out.append(
                 {
                     "subject_id": str(self.idx_to_label.get(int(idx), str(idx))),

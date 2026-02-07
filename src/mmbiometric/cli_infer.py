@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-# Standard library imports
 import argparse
 import json
 from pathlib import Path
 from typing import Any
 
-# Third‑party imports
 import pandas as pd
 
-# Local application imports
 from mmbiometric.inference.predictor import Predictor
 
 

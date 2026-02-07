@@ -1,25 +1,25 @@
+"""Inference helper for predicting a single (iris, fingerprint) pair.
+
+This module defines a lightweight ``Predictor`` class used by the HTTP API. It
+wraps the core ``MultimodalNet`` model from :mod:`mmbiometric.models.multimodal_net`
+and exposes methods for loading checkpoints and running inference on PIL images.
+Prior implementations referenced a non-existent ``MultimodalFusionNet`` and expected
+custom normalization; these bugs have been fixed so that the predictor now uses
+the same model architecture and transforms as training.
+"""
+
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 import torch
-from torchvision import transforms  # retained for backward compatibility (unused)
 
-"""Inference helper for predicting a single (iris, fingerprint) pair.
-
-This module defines a lightweight `Predictor` class used by the HTTP API.  It
-wraps the core `MultimodalNet` model from :mod:`mmbiometric.models.multimodal_net`
-and exposes methods for loading checkpoints and running inference on PIL
-images.  Prior implementations referenced a non-existent `MultimodalFusionNet`
-and expected custom normalization; these bugs have been fixed so that the
-predictor now uses the same model architecture and transforms as training.
-"""
-
-from mmbiometric.models.multimodal_net import MultimodalNet
 from mmbiometric.data.transforms import default_image_transform
+from mmbiometric.models.multimodal_net import MultimodalNet
 
 
 @dataclass
@@ -191,12 +191,8 @@ def predict_one(
         1, only the top prediction is returned and the ``topk`` field in the
         result is ``None``.
     """
-    import json
-    import torch
-    from types import SimpleNamespace
-
     # Load the label mapping (keys may be strings or ints); convert to int->str
-    with open(labels_json, "r", encoding="utf-8") as f:
+    with open(labels_json, encoding="utf-8") as f:
         lbl_data = json.load(f)
     # Handle wrapped formats
     if isinstance(lbl_data, dict) and "idx_to_label" in lbl_data:
@@ -206,7 +202,7 @@ def predict_one(
     # Load model metadata if available
     meta: dict[str, Any] = {}
     try:
-        with open(model_metadata_json, "r", encoding="utf-8") as f:
+        with open(model_metadata_json, encoding="utf-8") as f:
             meta = json.load(f)
     except Exception:
         meta = {}
@@ -253,7 +249,7 @@ def predict_one(
             k = min(k, probs.numel())
             vals, idxs = torch.topk(probs, k=k)
             topk_list: list[dict[str, Any]] = []
-            for score, idx in zip(vals.tolist(), idxs.tolist()):
+            for score, idx in zip(vals.tolist(), idxs.tolist(), strict=False):
                 topk_list.append(
                     {
                         "subject_id": str(idx_to_label.get(int(idx), str(idx))),

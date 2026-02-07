@@ -20,16 +20,9 @@ from __future__ import annotations
 
 import json
 import os
-
-if os.name == "nt":
-    # Work around PyTorch distributed rendezvous issues on Windows.
-    # See https://github.com/pytorch/pytorch/issues/150381
-    os.environ.setdefault("USE_LIBUV", "0")
-
 from dataclasses import dataclass
 from pathlib import Path
 
-# Third‑party imports
 import numpy as np
 import pandas as pd
 import torch
@@ -39,13 +32,18 @@ from torch.utils.data import DataLoader
 
 import ray
 from ray import train
-from ray.train import ScalingConfig, Result
+from ray.train import Result, ScalingConfig
 from ray.train.torch import TorchTrainer
 
 from mmbiometric.config import AppConfig, load_config
 from mmbiometric.data.dataset import MultimodalBiometricDataset, Sample
 from mmbiometric.data.transforms import default_image_transform
 from mmbiometric.models.multimodal_net import MultimodalNet
+
+# Work around PyTorch distributed rendezvous issues on Windows.
+if os.name == "nt":
+    # See https://github.com/pytorch/pytorch/issues/150381
+    os.environ.setdefault("USE_LIBUV", "0")
 
 
 # -----------------------------

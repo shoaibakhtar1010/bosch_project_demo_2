@@ -1,23 +1,37 @@
+"""FastAPI app exposing the multimodal biometric inference endpoint.
+
+The import order in this module follows Ruff's recommended grouping:
+  1. Standard library imports
+  2. Third‑party imports
+  3. Local application imports
+
+Using ``Annotated`` avoids calling FastAPI dependency functions (like
+``File()``) at import time, which Ruff's B008 rule flags. See the
+``predict`` route definition below for an example.
+"""
+
 from __future__ import annotations
 
 import io
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import torch
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from PIL import Image
 
-# Use the lightweight predictor implementation from inference.predict_one.  This
-# supports loading checkpoints using explicit hyperparameters and predicts on
-# PIL images.
 from mmbiometric.inference.predict_one import Predictor
 
 app = FastAPI(title="mmbiometric inference")
 
 PREDICTOR: Predictor | None = None
+
+# Define FastAPI dependencies at module level to avoid calling ``File()``
+# in default parameter values.  This satisfies Ruff's B008 rule.
+_iris_file: File = File(...)
+_fp_file: File = File(...)
 
 
 def _load_predictor() -> Predictor:
@@ -67,12 +81,19 @@ def startup() -> None:
 
 @app.post("/predict")
 async def predict(
-    iris: UploadFile = File(...),
-    fingerprint: UploadFile = File(...),
+    iris: Annotated[UploadFile, _iris_file],
+    fingerprint: Annotated[UploadFile, _fp_file],
 ) -> dict[str, str]:
+    """Predict a subject ID given an iris and fingerprint image.
+
+    The ``File`` dependency is provided via ``Annotated`` rather than as a
+    default argument, which avoids triggering Ruff's B008 rule.  See:
+    https://docs.astral.sh/ruff/rules/function-call-in-default-argument/
+    """
     if PREDICTOR is None:
         raise HTTPException(status_code=500, detail="Predictor not initialized")
 
+    # Read uploaded images into PIL.Image
     iris_img = Image.open(io.BytesIO(await iris.read()))
     fp_img = Image.open(io.BytesIO(await fingerprint.read()))
     pred = PREDICTOR.predict_one(iris_img, fp_img)

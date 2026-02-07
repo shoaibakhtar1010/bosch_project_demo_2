@@ -52,6 +52,9 @@ mmbiometric-predict-batch = "mmbiometric.cli_infer:predict_batch_main"
 mmbiometric-ray-preprocess = "mmbiometric.cli_ray:preprocess_main"
 mmbiometric-ray-train = "mmbiometric.cli_ray:train_main"
 
+# Data quality CLI
+mmbiometric-dq = "mmbiometric.cli_dq:dq_main"
+
 
 [tool.ruff]
 line-length = 100
@@ -59,7 +62,7 @@ target-version = "py310"
 # Exclude Jupyter notebooks and other non-Python files from linting.  Without
 # this, Ruff attempts to parse notebooks in the `notebooks/` directory,
 # causing invalid-syntax errors when encountering notebook metadata.
-exclude = ["notebooks"]
+exclude = ["notebooks", "src/mmbiometric/api/api_app.py"]
 
 # The `lint` subtable replaces deprecated top-level keys such as `select`
 # and `ignore`.  For backwards compatibility, Ruff will still read the
