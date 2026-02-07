@@ -55,7 +55,7 @@ def split_manifest(
     train_parts = []
     val_parts = []
 
-    for sid, g in df.groupby(subj, sort=True):
+    for _sid, g in df.groupby(subj, sort=True):
         # g.index.to_numpy() can be read-only -> do NOT shuffle in-place.
         idx = g.index.to_numpy()
         idx = rng.permutation(idx)  # safe shuffled copy

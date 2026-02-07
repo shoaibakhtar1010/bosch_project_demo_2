@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Tuple
+
 
 import torch
 import torch.nn as nn
 import torchvision.models as tvm
 
 
-def build_backbone(name: str) -> Tuple[nn.Module, int]:
+def build_backbone(name: str) -> tuple[nn.Module, int]:
     """Return (backbone_without_head, feature_dim)."""
     if name == "resnet18":
         m = tvm.resnet18(weights=None)

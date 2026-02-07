@@ -28,8 +28,8 @@ if os.name == "nt":
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
 
+# Third‑party imports
 import numpy as np
 import pandas as pd
 import torch
@@ -39,7 +39,7 @@ from torch.utils.data import DataLoader
 
 import ray
 from ray import train
-from ray.train import ScalingConfig
+from ray.train import ScalingConfig, Result
 from ray.train.torch import TorchTrainer
 
 from mmbiometric.config import AppConfig, load_config
@@ -94,7 +94,7 @@ def _apply_torch_dist_env(args: RayTrainArgs) -> None:
         pass
 
 
-def train_distributed(args: RayTrainArgs) -> "ray.train.Result":
+def train_distributed(args: RayTrainArgs) -> Result:
     """Entry point used by the CLI.
 
     Assumes preprocess has already generated:
@@ -109,8 +109,7 @@ def train_distributed(args: RayTrainArgs) -> "ray.train.Result":
         address = os.environ.get("RAY_ADDRESS")
         ray.init(address=address or "auto", ignore_reinit_error=True)
 
-    app_cfg = load_config(args.config_path)
-
+    # Resolve environment variables for distributed training on Windows.
     _apply_torch_dist_env(args)
 
     trainer = TorchTrainer(
@@ -154,7 +153,7 @@ def _collate_samples(batch: list[Sample]) -> Sample:
     return Sample(iris=iris, fingerprint=fingerprint, label=label)
 
 
-def _read_split_manifests(output_dir: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def _read_split_manifests(output_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     splits_dir = output_dir / "splits"
     train_path = splits_dir / "train_manifest.parquet"
     val_path = splits_dir / "val_manifest.parquet"
@@ -189,7 +188,7 @@ def _read_split_manifests(output_dir: Path) -> Tuple[pd.DataFrame, pd.DataFrame]
     return tr_df, va_df
 
 
-def _build_label_map(train_df: pd.DataFrame) -> Dict[str, int]:
+def _build_label_map(train_df: pd.DataFrame) -> dict[str, int]:
     train_df = train_df.copy()
     train_df["subject_id"] = train_df["subject_id"].astype(str)
     subjects = sorted(train_df["subject_id"].unique().tolist())
@@ -201,7 +200,7 @@ def _write_split_manifest(df: pd.DataFrame, path: Path) -> None:
     df.to_parquet(path, index=False)
 
 
-def _train_loop_per_worker(cfg: Dict) -> None:
+def _train_loop_per_worker(cfg: dict) -> None:
     """Ray Train worker function."""
 
     ctx = train.get_context()

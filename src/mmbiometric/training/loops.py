@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
 
 import torch
 import torch.nn as nn
@@ -58,7 +57,7 @@ def evaluate(
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     model.eval()
     loss_sum = 0.0
     acc_sum = 0.0

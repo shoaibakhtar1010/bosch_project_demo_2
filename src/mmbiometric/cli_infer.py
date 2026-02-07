@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+# Standard library imports
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+# Third‑party imports
 import pandas as pd
 
+# Local application imports
 from mmbiometric.inference.predictor import Predictor
 
 
@@ -34,7 +37,7 @@ def predict_one_main() -> int:
         device=args.device,
     )
 
-    out: Dict[str, Any] = {"predicted_subject_id": predictor.predict(iris_path, fp_path)}
+    out: dict[str, Any] = {"predicted_subject_id": predictor.predict(iris_path, fp_path)}
     if args.topk is not None and args.topk > 1:
         out["topk"] = predictor.predict_topk(iris_path, fp_path, k=args.topk)
 
@@ -45,18 +48,18 @@ def predict_one_main() -> int:
 def _predict_batch_from_paired_manifest(
     predictor: Predictor,
     df: pd.DataFrame,
-    topk: Optional[int],
+    topk: int | None,
 ) -> pd.DataFrame:
     required = {"iris_path", "fingerprint_path"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Manifest missing required columns for paired format: {sorted(missing)}")
 
-    preds: List[Dict[str, Any]] = []
+    preds: list[dict[str, Any]] = []
     for _, row in df.iterrows():
         iris_path = Path(str(row["iris_path"]))
         fp_path = Path(str(row["fingerprint_path"]))
-        rec: Dict[str, Any] = {}
+        rec: dict[str, Any] = {}
 
         if "subject_id" in df.columns:
             rec["subject_id"] = str(row["subject_id"])
@@ -75,7 +78,7 @@ def _predict_batch_from_paired_manifest(
 def _predict_batch_from_long_manifest(
     predictor: Predictor,
     df: pd.DataFrame,
-    topk: Optional[int],
+    topk: int | None,
 ) -> pd.DataFrame:
     """
     Supports a 'long' manifest with columns:
@@ -93,7 +96,7 @@ def _predict_batch_from_long_manifest(
     tmp = df.copy()
     tmp["modality"] = tmp["modality"].astype(str).str.lower()
 
-    preds: List[Dict[str, Any]] = []
+    preds: list[dict[str, Any]] = []
     for subject_id, g in tmp.groupby("subject_id"):
         iris_rows = g[g["modality"].str.contains("iris", na=False)]
         fp_rows = g[g["modality"].str.contains("finger", na=False)]
@@ -104,7 +107,7 @@ def _predict_batch_from_long_manifest(
         iris_path = Path(str(iris_rows.iloc[0]["filepath"]))
         fp_path = Path(str(fp_rows.iloc[0]["filepath"]))
 
-        rec: Dict[str, Any] = {"subject_id": str(subject_id)}
+        rec: dict[str, Any] = {"subject_id": str(subject_id)}
         rec["predicted_subject_id"] = predictor.predict(iris_path, fp_path)
 
         if topk is not None and topk > 1:

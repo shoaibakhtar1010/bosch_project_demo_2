@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+# Standard library imports
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Tuple
+from collections.abc import Callable
 
+# Third‑party imports
 import pandas as pd
-import torch
 from PIL import Image
+import torch
 from torch.utils.data import Dataset
 
 
@@ -44,7 +46,7 @@ class MultimodalBiometricDataset(Dataset[Sample]):
         manifest_path: Path,
         iris_transform: Transform,
         fingerprint_transform: Transform,
-        label_to_index: Dict[str, int],
+        label_to_index: dict[str, int],
     ) -> None:
         self.df = pd.read_parquet(manifest_path)
         self.iris_transform = iris_transform

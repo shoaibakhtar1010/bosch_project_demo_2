@@ -31,8 +31,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
+# Third‑party imports
 import pandas as pd
 import ray
 
@@ -69,7 +69,7 @@ def _resolve_dataset_root(dataset_dir: Path) -> Path:
     return dataset_dir
 
 
-def _extract_subject_id(rel_parts: tuple[str, ...]) -> Optional[str]:
+def _extract_subject_id(rel_parts: tuple[str, ...]) -> str | None:
     """Extract the subject id from relative path parts."""
     for part in rel_parts:
         if part.isdigit():
@@ -77,7 +77,7 @@ def _extract_subject_id(rel_parts: tuple[str, ...]) -> Optional[str]:
     return None
 
 
-def _guess_modality_from_relative(rel_parts: tuple[str, ...], stem_lower: str) -> Optional[str]:
+def _guess_modality_from_relative(rel_parts: tuple[str, ...], stem_lower: str) -> str | None:
     """Classify modality using only RELATIVE parts (no absolute-path leakage)."""
     parts = [p.lower() for p in rel_parts]
 
@@ -99,7 +99,7 @@ def _guess_modality_from_relative(rel_parts: tuple[str, ...], stem_lower: str) -
 
 
 @ray.remote
-def _process_one(path_str: str, dataset_root_str: str) -> Optional[_Partial]:
+def _process_one(path_str: str, dataset_root_str: str) -> _Partial | None:
     p = Path(path_str)
 
     if not p.is_file():

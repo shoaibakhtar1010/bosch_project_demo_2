@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import torch
 from PIL import Image
+import torch
 
 from mmbiometric.data.transforms import default_image_transform
 from mmbiometric.models.multimodal_net import MultimodalNet
 
 
-def _strip_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def _strip_module_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Handle checkpoints saved under DataParallel/DistributedDataParallel (module.* keys)."""
     if not state:
         return state
@@ -26,7 +26,7 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _load_idx_to_label(labels_path: Path) -> Dict[int, str]:
+def _load_idx_to_label(labels_path: Path) -> dict[int, str]:
     """
     Accept multiple label formats:
       A) Flat mapping written by your training: {"0": "1", "1": "2", ...}
@@ -66,7 +66,7 @@ def _load_idx_to_label(labels_path: Path) -> Dict[int, str]:
     return {}
 
 
-def _load_checkpoint_state(ckpt_path: Path, device: str) -> Dict[str, torch.Tensor]:
+def _load_checkpoint_state(ckpt_path: Path, device: str) -> dict[str, torch.Tensor]:
     payload = torch.load(ckpt_path, map_location=device)
 
     # Training saves {"model_state_dict": ..., "val_acc": ...}
@@ -89,8 +89,8 @@ def _load_checkpoint_state(ckpt_path: Path, device: str) -> Dict[str, torch.Tens
 class PredictorArtifacts:
     run_dir: Path
     checkpoint_path: Path
-    idx_to_label: Dict[int, str]
-    meta: Dict[str, Any]
+    idx_to_label: dict[int, str]
+    meta: dict[str, Any]
 
 
 class Predictor:
@@ -98,7 +98,7 @@ class Predictor:
         self,
         model: torch.nn.Module,
         transform,
-        idx_to_label: Dict[int, str],
+        idx_to_label: dict[int, str],
         device: str,
     ) -> None:
         self.model = model
@@ -109,9 +109,9 @@ class Predictor:
     @staticmethod
     def load(
         run_dir: Path,
-        checkpoint: Optional[Path] = None,
-        device: Optional[str] = None,
-    ) -> "Predictor":
+        checkpoint: Path | None = None,
+        device: str | None = None,
+    ) -> Predictor:
         run_dir = Path(run_dir)
         if not run_dir.exists():
             raise FileNotFoundError(f"run_dir not found: {run_dir}")
@@ -146,7 +146,7 @@ class Predictor:
 
         # Metadata (optional but recommended)
         meta_path = run_dir / "model_metadata.json"
-        meta: Dict[str, Any] = {}
+        meta: dict[str, Any] = {}
         if meta_path.exists():
             meta = _read_json(meta_path)
 
@@ -200,7 +200,7 @@ class Predictor:
         t = self.transform(img)  # C,H,W
         return t
 
-    def _prepare_inputs(self, iris_path: Path, fp_path: Path) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _prepare_inputs(self, iris_path: Path, fp_path: Path) -> tuple[torch.Tensor, torch.Tensor]:
         iris = self._load_image_tensor(iris_path).unsqueeze(0).to(self.device)
         fp = self._load_image_tensor(fp_path).unsqueeze(0).to(self.device)
         return iris, fp
@@ -218,14 +218,14 @@ class Predictor:
         return str(self.idx_to_label.get(pred_idx, str(pred_idx)))
 
     @torch.inference_mode()
-    def predict_topk(self, iris_path: Path, fingerprint_path: Path, k: int = 5) -> List[Dict[str, Any]]:
+    def predict_topk(self, iris_path: Path, fingerprint_path: Path, k: int = 5) -> list[dict[str, Any]]:
         logits = self.predict_logits(iris_path, fingerprint_path)
         probs = torch.softmax(logits, dim=-1)
 
         k = max(1, min(int(k), probs.numel()))
         vals, idxs = torch.topk(probs, k=k)
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for score, idx in zip(vals.tolist(), idxs.tolist()):
             out.append(
                 {

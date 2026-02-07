@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+# Standard library imports
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
+# Third‑party imports
 import yaml
 
 
@@ -12,8 +14,8 @@ DeviceChoice = Literal["auto", "cpu", "cuda"]
 
 @dataclass(frozen=True)
 class DataConfig:
-    dataset_dir: Optional[Path]
-    manifest_path: Optional[Path]
+    dataset_dir: Path | None
+    manifest_path: Path | None
     image_size: int
     batch_size: int
     num_workers: int

@@ -27,9 +27,10 @@ def predict_batch_from_manifest(
 
     preds = []
     for row in df.itertuples(index=False):
-        iris = Path(getattr(row, "iris_path"))
-        fp = Path(getattr(row, "fingerprint_path"))
-        gt = str(getattr(row, "subject_id"))
+        # Access tuple attributes directly instead of getattr; see Ruff B009.
+        iris = Path(row.iris_path)
+        fp = Path(row.fingerprint_path)
+        gt = str(row.subject_id)
 
         p = predict_one(
             checkpoint_path=checkpoint_path,

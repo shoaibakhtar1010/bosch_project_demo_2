@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Standard library imports
 import argparse
 import json
 import platform
@@ -7,10 +8,12 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+# Third‑party imports
 import torch
 from torch.utils.data import DataLoader
 import yaml
 
+# Local application imports
 from mmbiometric.config import load_config
 from mmbiometric.data.dataset import MultimodalBiometricDataset, collate_samples
 from mmbiometric.data.manifest import build_manifest

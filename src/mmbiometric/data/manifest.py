@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+# Standard library imports
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
+
+# Third‑party imports
 import pandas as pd
 from tqdm import tqdm
 
@@ -19,7 +21,7 @@ class ManifestRow:
     fingerprint_path: Path
 
 
-def _guess_modality(p: Path) -> Optional[str]:
+def _guess_modality(p: Path) -> str | None:
     """Best-effort modality inference from the *path structure*.
 
     Important Windows/KaggleHub pitfall:

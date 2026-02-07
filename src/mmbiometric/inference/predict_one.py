@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Any
 
-import torch
 from PIL import Image
+import torch
 from torchvision import transforms  # retained for backward compatibility (unused)
 
 """Inference helper for predicting a single (iris, fingerprint) pair.
@@ -26,7 +26,7 @@ from mmbiometric.data.transforms import default_image_transform
 class Predictor:
     # Use the core MultimodalNet for inference
     model: MultimodalNet
-    idx_to_label: Dict[int, str]
+    idx_to_label: dict[int, str]
     device: torch.device
     image_size: int
 
@@ -34,13 +34,13 @@ class Predictor:
     def load(
         cls,
         ckpt_path: Path,
-        idx_to_label: Dict[int, str],
+        idx_to_label: dict[int, str],
         backbone: str,
         embedding_dim: int,
         dropout: float,
         image_size: int,
         device: str | torch.device = "cpu",
-    ) -> "Predictor":
+    ) -> Predictor:
         """Load a :class:`MultimodalNet` checkpoint and return a Predictor instance.
 
         Parameters
@@ -151,7 +151,7 @@ class PredictOneOutput:
     """
 
     predicted_subject_id: str
-    topk: Optional[list[dict[str, Any]]] = None
+    topk: list[dict[str, Any]] | None = None
 
 
 def predict_one(
