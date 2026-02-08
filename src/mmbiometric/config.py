@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional, cast
 
 import yaml
-
 
 DeviceChoice = Literal["auto", "cpu", "cuda"]
 
 
 @dataclass(frozen=True)
 class DataConfig:
-    dataset_dir: Path | None
-    manifest_path: Path | None
+    dataset_dir: Optional[Path]
+    manifest_path: Optional[Path]
     image_size: int
     batch_size: int
     num_workers: int
@@ -51,7 +50,6 @@ def load_config(path: str | Path) -> AppConfig:
     Ray workers often receive the config path as a plain string (e.g. because
     `train_loop_config` is JSON-serialised). Accept both `str` and `Path`.
     """
-
     p = Path(path).expanduser()
     if p.is_dir():
         raise IsADirectoryError(f"Config path is a directory, expected file: {p}")
@@ -59,9 +57,20 @@ def load_config(path: str | Path) -> AppConfig:
         raise FileNotFoundError(f"Config file not found: {p}")
 
     raw: dict[str, Any] = yaml.safe_load(p.read_text(encoding="utf-8"))
+
     data = raw["data"]
     model = raw["model"]
     train = raw["train"]
+
+    # Validate and cast the device string to the DeviceChoice literal.
+    _device_raw = str(train["device"]).strip().lower()
+    if _device_raw not in ("auto", "cpu", "cuda"):
+        raise ValueError(
+            f"Invalid device in config: {_device_raw}. "
+            "Expected one of 'auto', 'cpu' or 'cuda'."
+        )
+    _device = cast(DeviceChoice, _device_raw)
+
     return AppConfig(
         seed=int(raw["seed"]),
         data=DataConfig(
@@ -82,7 +91,7 @@ def load_config(path: str | Path) -> AppConfig:
             epochs=int(train["epochs"]),
             lr=float(train["lr"]),
             weight_decay=float(train["weight_decay"]),
-            device=str(train["device"]),
+            device=_device,  # <-- mypy-safe Literal
             log_every=int(train["log_every"]),
         ),
     )
