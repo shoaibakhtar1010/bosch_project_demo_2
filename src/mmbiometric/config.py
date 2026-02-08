@@ -66,8 +66,7 @@ def load_config(path: str | Path) -> AppConfig:
     device_raw = str(train["device"]).strip().lower()
     if device_raw not in ("auto", "cpu", "cuda"):
         raise ValueError(
-            f"Invalid device in config: {device_raw}. "
-            "Expected one of 'auto', 'cpu' or 'cuda'."
+            f"Invalid device in config: {device_raw}. Expected one of 'auto', 'cpu' or 'cuda'."
         )
     device = cast(DeviceChoice, device_raw)
 
