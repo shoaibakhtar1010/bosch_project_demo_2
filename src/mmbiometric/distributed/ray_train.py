@@ -18,9 +18,9 @@ set `GLOO_SOCKET_IFNAME` to your active NIC.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
