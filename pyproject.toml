@@ -70,7 +70,11 @@ exclude = ["notebooks", "src/mmbiometric/api/api_app.py"]
 # warnings.  See https://docs.astral.sh/ruff/settings/#lint-settings
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W"]
-ignore = ["E501"]
+ignore = [
+  "E501",
+  # Ignore import ordering issues flagged by Ruff (I001), per user request.
+  "I001",
+]
 
 [tool.mypy]
 python_version = "3.10"
