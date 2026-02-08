@@ -16,6 +16,7 @@ If you get a hang, export `MASTER_ADDR` to your LAN IP (same as Ray head) and
 set `GLOO_SOCKET_IFNAME` to your active NIC.
 """
 
+# fmt: off
 from __future__ import annotations
 
 from dataclasses import dataclass

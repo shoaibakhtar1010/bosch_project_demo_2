@@ -1,3 +1,4 @@
+# fmt: off
 """Single-machine pipeline runner (no Ray).
 
 Why this exists:

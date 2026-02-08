@@ -27,6 +27,7 @@ the Cartesian product per subject: for each subject, every iris image is paired
 with every fingerprint image.
 """
 
+# fmt: off
 from __future__ import annotations
 
 from dataclasses import dataclass

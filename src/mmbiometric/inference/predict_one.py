@@ -8,6 +8,7 @@ custom normalization; these bugs have been fixed so that the predictor now uses
 the same model architecture and transforms as training.
 """
 
+# fmt: off
 from __future__ import annotations
 
 from dataclasses import dataclass
