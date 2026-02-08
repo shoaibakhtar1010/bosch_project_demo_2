@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 import yaml
 
@@ -11,8 +11,8 @@ DeviceChoice = Literal["auto", "cpu", "cuda"]
 
 @dataclass(frozen=True)
 class DataConfig:
-    dataset_dir: Optional[Path]
-    manifest_path: Optional[Path]
+    dataset_dir: Path | None
+    manifest_path: Path | None
     image_size: int
     batch_size: int
     num_workers: int
@@ -63,13 +63,13 @@ def load_config(path: str | Path) -> AppConfig:
     train = raw["train"]
 
     # Validate and cast the device string to the DeviceChoice literal.
-    _device_raw = str(train["device"]).strip().lower()
-    if _device_raw not in ("auto", "cpu", "cuda"):
+    device_raw = str(train["device"]).strip().lower()
+    if device_raw not in ("auto", "cpu", "cuda"):
         raise ValueError(
-            f"Invalid device in config: {_device_raw}. "
+            f"Invalid device in config: {device_raw}. "
             "Expected one of 'auto', 'cpu' or 'cuda'."
         )
-    _device = cast(DeviceChoice, _device_raw)
+    device = cast(DeviceChoice, device_raw)
 
     return AppConfig(
         seed=int(raw["seed"]),
@@ -91,7 +91,7 @@ def load_config(path: str | Path) -> AppConfig:
             epochs=int(train["epochs"]),
             lr=float(train["lr"]),
             weight_decay=float(train["weight_decay"]),
-            device=_device,  # <-- mypy-safe Literal
+            device=device,  # mypy-safe Literal
             log_every=int(train["log_every"]),
         ),
     )
