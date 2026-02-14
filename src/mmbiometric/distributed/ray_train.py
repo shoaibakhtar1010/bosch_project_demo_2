@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-
 import pandas as pd
 import ray
 import torch
@@ -31,6 +30,7 @@ from mmbiometric.data.transforms import default_image_transform
 from mmbiometric.models.multimodal_net import MultimodalNet
 from mmbiometric.utils.seed import seed_everything
 
+
 def _is_ipv4(addr: str) -> bool:
     try:
         return isinstance(ipaddress.ip_address(addr), ipaddress.IPv4Address)
@@ -43,10 +43,10 @@ def _windows_iface_alias_to_ipv4(alias: str) -> str | None:
     # It works more reliably if we pass the adapter's IPv4 address.
     try:
         cmd = [
-           "powershell",
+            "powershell",
             "-NoProfile",
             "-Command",
-            f"(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias \"{alias}\" | "
+            f'(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "{alias}" | '
             "Select-Object -First 1 -ExpandProperty IPAddress)",
         ]
         out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
@@ -90,7 +90,7 @@ def _set_env(
     gloo_val = (gloo_ifname or "").strip()
 
     # Windows-specific: force Gloo to bind to a single IPv4 address.
-  # Otherwise it falls back to hostname (DESKTOP-...) which resolves to multiple adapters
+    # Otherwise it falls back to hostname (DESKTOP-...) which resolves to multiple adapters
     # (Hyper-V 172.17.*, IPv6 link-local, Wi-Fi, etc.) and can error with "unsupported gloo device".
     if platform.system().lower().startswith("win"):
         if not gloo_val and _is_ipv4(master_addr):
@@ -163,7 +163,9 @@ class PatchedTorchConfig(TorchConfig):
 class _PatchedTorchBackend(_TorchBackend):
     def on_start(self, worker_group, backend_config: PatchedTorchConfig):
         master_addr = _sanitize_master_addr(backend_config.master_addr)
-        master_port = int(backend_config.master_port) if backend_config.master_port else _pick_free_port()
+        master_port = (
+            int(backend_config.master_port) if backend_config.master_port else _pick_free_port()
+        )
         init_method = backend_config.init_method or f"tcp://{master_addr}:{master_port}"
 
         worker_group.execute(
@@ -282,7 +284,9 @@ def _train_loop_per_worker(config: dict):
 
     manifest_path = out_dir / "manifest.parquet"
     if rank == 0 and not manifest_path.exists():
-        build_manifest(dataset_dir=dataset_dir, output_path=manifest_path, subject_regex=subject_regex)
+        build_manifest(
+            dataset_dir=dataset_dir, output_path=manifest_path, subject_regex=subject_regex
+        )
     if world > 1 and dist.is_initialized():
         dist.barrier()
 
@@ -370,7 +374,9 @@ def _train_loop_per_worker(config: dict):
             n_batches += 1
 
             if rank == 0 and log_every > 0 and (step + 1) % log_every == 0:
-                print(f"[train] epoch={epoch} step={step+1} loss={loss_sum/max(1,n_batches):.4f}")
+                print(
+                    f"[train] epoch={epoch} step={step + 1} loss={loss_sum / max(1, n_batches):.4f}"
+                )
 
         train_loss = torch.tensor(loss_sum / max(1, n_batches), device=device)
         train_loss = _reduce_mean(train_loss)

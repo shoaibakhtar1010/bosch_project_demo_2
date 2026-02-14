@@ -48,6 +48,7 @@ def _maybe_init_ray(ray_address: str, num_cpus: int) -> None:
         # LOCAL mode
         ray.init(num_cpus=int(num_cpus), ignore_reinit_error=True, include_dashboard=False)
 
+
 def _preprocess_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mmbiometric-ray-preprocess")
     p.add_argument("--dataset-dir", required=True, help="Dataset root directory")
