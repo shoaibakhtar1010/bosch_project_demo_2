@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 from mmbiometric.data.manifest import build_manifest
 from mmbiometric.utils.logging import get_logger

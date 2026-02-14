@@ -234,7 +234,7 @@ def _ensure_ray_connected(address: str) -> None:
 
 
 def _load_yaml(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
