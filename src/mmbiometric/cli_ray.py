@@ -1,180 +1,177 @@
+# src/mmbiometric/cli_ray.py
+"""Ray-based CLIs.
+
+Console scripts (see pyproject.toml):
+  - mmbiometric-ray-preprocess -> preprocess_main
+  - mmbiometric-ray-train      -> train_main
+
+Important:
+  console_scripts call the referenced function with *no arguments*.
+  Therefore `preprocess_main()` and `train_main()` must be no-arg entrypoints
+  that parse sys.argv internally.
+"""
+
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
+from typing import Sequence
 
-import ray
+from mmbiometric.data.manifest import build_manifest
+from mmbiometric.utils.logging import get_logger
 
-from mmbiometric.distributed.ray_manifest import build_manifest_distributed
-from mmbiometric.distributed.ray_train import RayTrainArgs, train_distributed
+logger = get_logger(__name__)
 
 
-def _ray_init() -> None:
-    """Initialize Ray.
+def _maybe_init_ray(ray_address: str, num_cpus: int) -> None:
+    """Init Ray safely.
 
-    Precedence:
-      1) If RAY_ADDRESS or RAY_HEAD_ADDRESS is set, connect to that cluster.
-      2) Otherwise, start a *fresh local* Ray instance.
-
-    On Windows, Ray + PyTorch distributed can trip over hostname/IP resolution
-    when attaching to a previously-started cluster. Starting a fresh local
-    instance with an explicit loopback node IP avoids the common
-    `makeDeviceForHostname(): unsupported gloo device` failure.
+    - If address is provided (arg or env RAY_ADDRESS), CONNECT to that cluster.
+      (Do NOT pass num_cpus / num_gpus when connecting.)
+    - Else start LOCAL Ray with num_cpus.
     """
-
-    address = os.environ.get("RAY_ADDRESS") or os.environ.get("RAY_HEAD_ADDRESS")
+    try:
+        import ray  # type: ignore
+    except Exception:
+        return
 
     if ray.is_initialized():
         return
 
-    if address:
-        ray.init(address=address)
-        return
+    addr = (ray_address or os.environ.get("RAY_ADDRESS", "")).strip()
 
-    # Start a new local instance even if one is already running.
-    # See Ray docs for `address="local"` and `_node_ip_address`.
-    if os.name == "nt":
-        ray.init(address="local", _node_ip_address="127.0.0.1")
+    if addr:
+        # CONNECT mode
+        ray.init(address=addr, ignore_reinit_error=True, log_to_driver=True)
     else:
-        ray.init()
+        # LOCAL mode
+        ray.init(num_cpus=int(num_cpus), ignore_reinit_error=True, include_dashboard=False)
 
-
-def preprocess_main(argv: list[str] | None = None) -> None:
-    """CLI entrypoint: build a manifest.parquet from the raw dataset."""
-    parser = argparse.ArgumentParser(prog="mmbiometric-ray-preprocess")
-    parser.add_argument("--dataset-dir", required=True, help="Dataset root directory")
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Output directory where manifest.parquet will be written",
+def _preprocess_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="mmbiometric-ray-preprocess")
+    p.add_argument("--dataset-dir", required=True, help="Dataset root directory")
+    p.add_argument("--output-dir", required=True, help="Output directory")
+    p.add_argument("--subject-regex", default=r"(\d+)", help="Regex to extract subject id")
+    p.add_argument(
+        "--num-cpus",
+        type=int,
+        default=6,
+        help="Local Ray CPUs if starting a local Ray runtime",
     )
-    parser.add_argument("--num-cpus", type=int, default=4, help="CPUs to use for preprocessing")
-    args = parser.parse_args(argv)
-
-    _ray_init()
-
-    build_manifest_distributed(
-        dataset_dir=args.dataset_dir,
-        output_dir=args.output_dir,
-        num_cpus=args.num_cpus,
+    p.add_argument(
+        "--ray-address",
+        default=os.environ.get("RAY_ADDRESS", ""),
+        help='Ray address like "192.168.0.101:6379" (optional).',
     )
-
-    out_manifest = Path(args.output_dir) / "manifest.parquet"
-    print(f"[OK] Wrote manifest: {out_manifest}")
-
-
-def train_main(argv: list[str] | None = None) -> None:
-    """CLI entrypoint: distributed training using Ray Train."""
-    parser = argparse.ArgumentParser(prog="mmbiometric-ray-train")
-    parser.add_argument("--config", required=True, help="Path to YAML config")
-    parser.add_argument("--dataset-dir", required=True, help="Dataset root directory")
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Output directory (must contain manifest.parquet or splits/*.parquet)",
+    p.add_argument(
+        "--distributed",
+        action="store_true",
+        help="If set, uses Ray tasks to build the manifest (otherwise local scan).",
     )
-    parser.add_argument("--num-workers", type=int, default=2, help="Number of Ray Train workers")
-    parser.add_argument("--cpus-per-worker", type=int, default=2, help="CPUs per worker")
-    parser.add_argument("--use-gpu", action="store_true", help="Use 1 GPU per worker")
-    parser.add_argument(
-        "--master-addr",
-        help="Override MASTER_ADDR for torch distributed (useful on Windows multi-worker).",
-    )
-    parser.add_argument(
+    return p
+
+
+def preprocess_main(argv: Sequence[str] | None = None) -> None:
+    """Build manifest.parquet under --output-dir.
+
+    This is intentionally a no-arg console entrypoint.
+    """
+    ns = _preprocess_parser().parse_args(list(argv) if argv is not None else None)
+    dataset_dir = Path(ns.dataset_dir).expanduser().resolve()
+    out_dir = Path(ns.output_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = out_dir / "manifest.parquet"
+
+    # Dataset is small (~900 images) so local scanning is fine.
+    # Use distributed mode only if you explicitly request it.
+    if bool(ns.distributed):
+        _maybe_init_ray(str(ns.ray_address), int(ns.num_cpus))
+        from mmbiometric.distributed.ray_manifest import build_manifest_distributed
+
+        build_manifest_distributed(
+            dataset_dir=str(dataset_dir),
+            output_dir=str(out_dir),
+            num_cpus=int(ns.num_cpus),
+        )
+        logger.info("manifest written (distributed): %s", manifest_path)
+    else:
+        build_manifest(
+            dataset_dir=dataset_dir,
+            output_path=manifest_path,
+            subject_regex=str(ns.subject_regex),
+        )
+        logger.info("manifest written: %s", manifest_path)
+
+    print(f"[OK] Wrote manifest: {manifest_path}")
+
+
+def _train_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="mmbiometric-ray-train")
+    p.add_argument("--config", dest="config_path", required=True, help="Path to YAML config")
+    p.add_argument("--dataset-dir", required=True)
+    p.add_argument("--output-dir", required=True)
+    p.add_argument("--subject-regex", default=r"(\d+)")
+
+    p.add_argument("--num-workers", type=int, default=2)
+    p.add_argument("--cpus-per-worker", type=int, default=2)
+    p.add_argument("--use-gpu", action="store_true", default=False)
+
+    # Distributed rendezvous settings
+    p.add_argument("--master-addr", default=os.environ.get("MASTER_ADDR", "127.0.0.1"))
+    p.add_argument("--master-port", type=int, default=int(os.environ.get("MASTER_PORT", "29500")))
+
+    p.add_argument(
         "--gloo-ifname",
-        help="Override GLOO_SOCKET_IFNAME for torch distributed (e.g. 'Wi-Fi').",
+        default=os.environ.get("GLOO_SOCKET_IFNAME", ""),
+        help="Optional. If set wrong, Gloo will fail. Prefer leaving unset on Windows.",
     )
-    parser.add_argument(
-        "--subject-regex",
-        default=r"^(\d+)$",
-        help="Regex to extract subject_id from folder names (defaults to numeric folders).",
+    p.add_argument(
+        "--gloo-family",
+        default=os.environ.get("GLOO_SOCKET_FAMILY", "AF_INET"),
+        choices=["AF_INET", "AF_INET6"],
+    )
+    p.add_argument(
+        "--use-libuv",
+        type=int,
+        default=int(os.environ.get("USE_LIBUV", "0")),
+        choices=[0, 1],
+        help="Torch TCPStore: 0 disables libuv (often safer on Windows).",
     )
 
-    args = parser.parse_args(argv)
+    p.add_argument(
+        "--ray-address",
+        default=os.environ.get("RAY_ADDRESS", ""),
+        help='Ray address like "192.168.0.101:6379". If empty, uses "auto".',
+    )
+    p.add_argument("--run-name", default="mmbiometric_ray_train")
+    p.add_argument("--fresh-run", action="store_true")
+    return p
 
-    config_value = args.config.strip()
-    if not config_value:
-        raise SystemExit("Config path is empty. Set --config to a valid YAML file.")
-    config_path = Path(config_value).expanduser()
-    if config_path.is_dir():
-        raise SystemExit(f"Config path must be a file, got directory: {config_path}")
 
-    _ray_init()
+def train_main(argv: Sequence[str] | None = None) -> None:
+    """Train using Ray Train + torch.distributed (DDP).
+
+    This is intentionally a no-arg console entrypoint.
+    """
+    ns = _train_parser().parse_args(list(argv) if argv is not None else None)
+    from mmbiometric.distributed.ray_train import RayTrainArgs, train_distributed
 
     ray_args = RayTrainArgs(
-        config_path=str(config_path),
-        dataset_dir=args.dataset_dir,
-        output_dir=args.output_dir,
-        subject_regex=args.subject_regex,
-        num_workers=args.num_workers,
-        cpus_per_worker=args.cpus_per_worker,
-        use_gpu=bool(args.use_gpu),
-        master_addr=args.master_addr,
-        gloo_socket_ifname=args.gloo_ifname,
+        config_path=str(ns.config_path),
+        dataset_dir=str(ns.dataset_dir),
+        output_dir=str(ns.output_dir),
+        subject_regex=str(ns.subject_regex),
+        num_workers=int(ns.num_workers),
+        cpus_per_worker=int(ns.cpus_per_worker),
+        use_gpu=bool(ns.use_gpu),
+        master_addr=str(ns.master_addr),
+        master_port=int(ns.master_port),
+        gloo_ifname=(ns.gloo_ifname or ""),
+        gloo_family=str(ns.gloo_family or "AF_INET"),
+        use_libuv=int(ns.use_libuv),
+        ray_address=(ns.ray_address or ""),
+        run_name=str(ns.run_name),
+        fresh_run=bool(ns.fresh_run),
     )
     train_distributed(ray_args)
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Optional combined CLI: `mmbiometric-ray preprocess|train ...`"""
-    parser = argparse.ArgumentParser(prog="mmbiometric-ray")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    p_pre = sub.add_parser("preprocess", help="Build manifest.parquet")
-    p_pre.add_argument("--dataset-dir", required=True)
-    p_pre.add_argument("--output-dir", required=True)
-    p_pre.add_argument("--num-cpus", type=int, default=4)
-
-    p_tr = sub.add_parser("train", help="Train with Ray Train")
-    p_tr.add_argument("--config", required=True)
-    p_tr.add_argument("--dataset-dir", required=True)
-    p_tr.add_argument("--output-dir", required=True)
-    p_tr.add_argument("--num-workers", type=int, default=2)
-    p_tr.add_argument("--cpus-per-worker", type=int, default=2)
-    p_tr.add_argument("--use-gpu", action="store_true")
-    p_tr.add_argument("--master-addr")
-    p_tr.add_argument("--gloo-ifname")
-    p_tr.add_argument("--subject-regex", default=r"^(\d+)$")
-
-    ns = parser.parse_args(argv)
-
-    if ns.cmd == "preprocess":
-        preprocess_main(
-            [
-                "--dataset-dir",
-                ns.dataset_dir,
-                "--output-dir",
-                ns.output_dir,
-                "--num-cpus",
-                str(ns.num_cpus),
-            ]
-        )
-    elif ns.cmd == "train":
-        argv2 = [
-            "--config",
-            ns.config,
-            "--dataset-dir",
-            ns.dataset_dir,
-            "--output-dir",
-            ns.output_dir,
-            "--num-workers",
-            str(ns.num_workers),
-            "--cpus-per-worker",
-            str(ns.cpus_per_worker),
-            "--subject-regex",
-            ns.subject_regex,
-        ]
-        if ns.use_gpu:
-            argv2.append("--use-gpu")
-        if ns.master_addr:
-            argv2.extend(["--master-addr", ns.master_addr])
-        if ns.gloo_ifname:
-            argv2.extend(["--gloo-ifname", ns.gloo_ifname])
-        train_main(argv2)
-    else:
-        raise SystemExit(f"Unknown command: {ns.cmd}")
-
-
-if __name__ == "__main__":
-    main()
