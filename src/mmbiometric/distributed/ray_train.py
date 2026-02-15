@@ -440,6 +440,7 @@ def _train_loop_per_worker(config: dict):
             except Exception:
                 try:
                     from ray.air import session as air_session  # type: ignore
+
                     air_session.report(metrics)
                 except Exception:
                     print(f"[metrics] {metrics}")
