@@ -18,7 +18,8 @@ def _p(path_str: str) -> Path:
 def predict_one_main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", required=True, help="Training run dir (contains best.pt, labels.json, model_metadata.json)")
-    parser.add_argument("--iris", required=True, help="Path to iris image")
+    parser.add_argument("--left-iris", required=True, help="Path to LEFT iris image")
+    parser.add_argument("--right-iris", required=True, help="Path to RIGHT iris image")
     parser.add_argument("--fingerprint", required=True, help="Path to fingerprint image")
     parser.add_argument("--checkpoint", default=None, help="Optional checkpoint filename/path (default: best.pt in run-dir)")
     parser.add_argument("--topk", type=int, default=None, help="Optional top-k predictions to include")
@@ -26,7 +27,8 @@ def predict_one_main() -> int:
     args = parser.parse_args()
 
     run_dir = _p(args.run_dir)
-    iris_path = _p(args.iris)
+    left_iris_path = _p(args.left_iris)
+    right_iris_path = _p(args.right_iris)
     fp_path = _p(args.fingerprint)
 
     predictor = Predictor.load(
@@ -35,9 +37,11 @@ def predict_one_main() -> int:
         device=args.device,
     )
 
-    out: dict[str, Any] = {"predicted_subject_id": predictor.predict(iris_path, fp_path)}
+    out: dict[str, Any] = {
+    "predicted_subject_id": predictor.predict(left_iris_path, right_iris_path, fp_path)
+}
     if args.topk is not None and args.topk > 1:
-        out["topk"] = predictor.predict_topk(iris_path, fp_path, k=args.topk)
+        out["topk"] = predictor.predict_topk(left_iris_path, right_iris_path, fp_path, k=args.topk)
 
     print(json.dumps(out, indent=2))
     return 0
@@ -48,25 +52,25 @@ def _predict_batch_from_paired_manifest(
     df: pd.DataFrame,
     topk: int | None,
 ) -> pd.DataFrame:
-    required = {"iris_path", "fingerprint_path"}
+    required = {"left_iris_path", "right_iris_path", "fingerprint_path"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Manifest missing required columns for paired format: {sorted(missing)}")
 
     preds: list[dict[str, Any]] = []
     for _, row in df.iterrows():
-        iris_path = Path(str(row["iris_path"]))
+        left_path = Path(str(row["left_iris_path"]))
+        right_path = Path(str(row["right_iris_path"]))
         fp_path = Path(str(row["fingerprint_path"]))
         rec: dict[str, Any] = {}
 
         if "subject_id" in df.columns:
             rec["subject_id"] = str(row["subject_id"])
 
-        rec["predicted_subject_id"] = predictor.predict(iris_path, fp_path)
+        rec["predicted_subject_id"] = predictor.predict(left_path, right_path, fp_path)
 
-        # For parquet compatibility, store topk as JSON text
         if topk is not None and topk > 1:
-            rec["topk_json"] = json.dumps(predictor.predict_topk(iris_path, fp_path, k=topk))
+            rec["topk_json"] = json.dumps(predictor.predict_topk(left_path, right_path, fp_path, k=topk))
 
         preds.append(rec)
 
@@ -96,20 +100,22 @@ def _predict_batch_from_long_manifest(
 
     preds: list[dict[str, Any]] = []
     for subject_id, g in tmp.groupby("subject_id"):
-        iris_rows = g[g["modality"].str.contains("iris", na=False)]
-        fp_rows = g[g["modality"].str.contains("finger", na=False)]
+        left_rows  = g[g["modality"].str.contains("left", na=False)]
+        right_rows = g[g["modality"].str.contains("right", na=False)]
+        fp_rows    = g[g["modality"].str.contains("finger", na=False)]
 
-        if len(iris_rows) == 0 or len(fp_rows) == 0:
+        if len(left_rows) == 0 or len(right_rows) == 0 or len(fp_rows) == 0:
             continue
 
-        iris_path = Path(str(iris_rows.iloc[0]["filepath"]))
-        fp_path = Path(str(fp_rows.iloc[0]["filepath"]))
+        left_path  = Path(str(left_rows.iloc[0]["filepath"]))
+        right_path = Path(str(right_rows.iloc[0]["filepath"]))
+        fp_path    = Path(str(fp_rows.iloc[0]["filepath"]))
 
         rec: dict[str, Any] = {"subject_id": str(subject_id)}
-        rec["predicted_subject_id"] = predictor.predict(iris_path, fp_path)
-
+        rec["predicted_subject_id"] = predictor.predict(left_path, right_path, fp_path)
+        
         if topk is not None and topk > 1:
-            rec["topk_json"] = json.dumps(predictor.predict_topk(iris_path, fp_path, k=topk))
+            rec["topk_json"] = json.dumps(predictor.predict_topk(left_path, right_path, fp_path, k=topk))
 
         preds.append(rec)
 
@@ -147,7 +153,7 @@ def predict_batch_main() -> int:
         raise ValueError("Manifest must be .parquet or .csv")
 
     cols = set(df.columns)
-    if {"iris_path", "fingerprint_path"}.issubset(cols):
+    if {"left_iris_path", "right_iris_path", "fingerprint_path"}.issubset(cols):
         out_df = _predict_batch_from_paired_manifest(predictor, df, args.topk)
     elif {"subject_id", "filepath", "modality"}.issubset(cols):
         out_df = _predict_batch_from_long_manifest(predictor, df, args.topk)

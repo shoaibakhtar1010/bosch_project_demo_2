@@ -63,7 +63,19 @@ def train_main() -> None:
     seed_everything(cfg.seed)
 
     # 1) manifest
+    import pandas as pd
     manifest_path = cfg.data.manifest_path or (out_dir / "manifest.parquet")
+
+
+    required_cols = {"subject_id", "left_iris_path", "right_iris_path", "fingerprint_path"}
+    if manifest_path.exists():
+        df0 = pd.read_parquet(manifest_path)
+        if not required_cols.issubset(set(df0.columns)):
+            logger.warning("Existing manifest has old schema; rebuilding: %s", manifest_path)
+            build_manifest(dataset_dir=dataset_dir, output_path=manifest_path, subject_regex=args.subject_regex)
+    else:
+        build_manifest(dataset_dir=dataset_dir, output_path=manifest_path, subject_regex=args.subject_regex)
+
     if not manifest_path.exists():
         build_manifest(dataset_dir=dataset_dir, output_path=manifest_path, subject_regex=args.subject_regex)
 

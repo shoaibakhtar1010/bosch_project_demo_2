@@ -15,8 +15,7 @@ class MultimodalNet(nn.Module):
         fp_backbone, fp_dim = build_backbone(backbone)
         self.iris = iris_backbone
         self.fingerprint = fp_backbone
-
-        fused_dim = iris_dim + fp_dim
+        fused_dim = (2 * iris_dim) + fp_dim
         self.head = nn.Sequential(
             nn.Linear(fused_dim, embedding_dim),
             nn.ReLU(),
@@ -24,8 +23,14 @@ class MultimodalNet(nn.Module):
             nn.Linear(embedding_dim, num_classes),
         )
 
-    def forward(self, iris: torch.Tensor, fingerprint: torch.Tensor) -> torch.Tensor:
-        iris_feat = self.iris(iris)
+    def forward(
+        self,
+        left_iris: torch.Tensor,
+        right_iris: torch.Tensor,
+        fingerprint: torch.Tensor,
+    ) -> torch.Tensor:
+        left_feat = self.iris(left_iris)
+        right_feat = self.iris(right_iris)
         fp_feat = self.fingerprint(fingerprint)
-        fused = torch.cat([iris_feat, fp_feat], dim=1)
+        fused = torch.cat([left_feat, right_feat, fp_feat], dim=1)
         return self.head(fused)

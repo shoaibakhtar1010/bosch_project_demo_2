@@ -14,8 +14,10 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 @dataclass(frozen=True)
 class ManifestRow:
     subject_id: str
-    iris_path: Path
+    left_iris_path: Path
+    right_iris_path: Path
     fingerprint_path: Path
+
 
 
 def _guess_modality(p: Path) -> str | None:
@@ -38,22 +40,31 @@ def _guess_modality(p: Path) -> str | None:
     # 1) Strong signals: explicit folders
     if parent in {"fingerprint", "fingerprints", "fp"}:
         return "fingerprint"
-    if parent in {"left", "right"}:
-        return "iris"
+    if parent == "left":
+        return "left_iris"
+    if parent == "right":
+        return "right_iris"
+
 
     # 2) Folder tokens (exact matches only)
     if "fingerprint" in parts or "fp" in parts:
         return "fingerprint"
-    if "iris" in parts or "left" in parts or "right" in parts:
-        return "iris"
+    if "left" in parts:
+        return "left_iris"
+    if "right" in parts:
+        return "right_iris"
+    # if the dataset ever has a generic "iris" folder without side, we can't use it for 3-modal
+
 
     # 3) Filename fallback
     if "finger" in name or "fingerprint" in name:
         return "fingerprint"
-    if "iris" in name:
-        return "iris"
-
+    if "left" in name:
+        return "left_iris"
+    if "right" in name:
+        return "right_iris"
     return None
+
 
 
 def _extract_subject_id(p: Path, dataset_root: Path, subject_regex: str) -> str:
@@ -110,7 +121,8 @@ def build_manifest(
         p for p in dataset_dir.rglob("*") if p.is_file() and p.suffix.lower() in _IMAGE_EXTS
     ]
 
-    iris_by_subject: dict[str, list[Path]] = {}
+    left_by_subject: dict[str, list[Path]] = {}
+    right_by_subject: dict[str, list[Path]] = {}
     fp_by_subject: dict[str, list[Path]] = {}
 
     for p in tqdm(files, desc="Scanning images"):
@@ -118,37 +130,45 @@ def build_manifest(
         if modality is None:
             continue
         sid = _extract_subject_id(p, dataset_dir, subject_regex)
-        if modality == "iris":
-            iris_by_subject.setdefault(sid, []).append(p)
-        else:
+        if modality == "left_iris":
+            left_by_subject.setdefault(sid, []).append(p)
+        elif modality == "right_iris":
+            right_by_subject.setdefault(sid, []).append(p)
+        elif modality == "fingerprint":
             fp_by_subject.setdefault(sid, []).append(p)
 
+
     rows: list[ManifestRow] = []
-    for sid, iris_list in iris_by_subject.items():
-        fp_list = fp_by_subject.get(sid, [])
-        if not fp_list:
+    for sid in sorted(set(left_by_subject) | set(right_by_subject) | set(fp_by_subject)):
+        left_list = sorted(left_by_subject.get(sid, []))
+        right_list = sorted(right_by_subject.get(sid, []))
+        fp_list = sorted(fp_by_subject.get(sid, []))
+
+        # Need all three modalities
+        if not left_list or not right_list or not fp_list:
             continue
 
-        iris_list = sorted(iris_list)
-        fp_list = sorted(fp_list)
-        n = min(len(iris_list), len(fp_list))
-
+        n = min(len(left_list), len(right_list), len(fp_list))
         for i in range(n):
             rows.append(
                 ManifestRow(
                     subject_id=sid,
-                    iris_path=iris_list[i],
+                    left_iris_path=left_list[i],
+                    right_iris_path=right_list[i],
                     fingerprint_path=fp_list[i],
                 )
             )
 
+
     df = pd.DataFrame(
-        {
-            "subject_id": [r.subject_id for r in rows],
-            "iris_path": [str(r.iris_path) for r in rows],
-            "fingerprint_path": [str(r.fingerprint_path) for r in rows],
-        }
-    )
+    {
+        "subject_id": [r.subject_id for r in rows],
+        "left_iris_path": [str(r.left_iris_path) for r in rows],
+        "right_iris_path": [str(r.right_iris_path) for r in rows],
+        "fingerprint_path": [str(r.fingerprint_path) for r in rows],
+    }
+)
+
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_path, index=False)

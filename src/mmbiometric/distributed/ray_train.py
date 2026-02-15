@@ -352,12 +352,14 @@ def _train_loop_per_worker(config: dict):
         n_batches = 0
 
         for step, batch in enumerate(train_loader):
-            iris = batch.iris.to(device)
+            left = batch.left_iris.to(device)
+            right = batch.right_iris.to(device)
             fp = batch.fingerprint.to(device)
-            y = batch.label.to(device)
+            
+
 
             optimizer.zero_grad(set_to_none=True)
-            logits = model(iris, fp)
+            logits = model(left, right, fp)
             loss = criterion(logits, y)
             loss.backward()
             optimizer.step()

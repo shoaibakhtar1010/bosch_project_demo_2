@@ -35,12 +35,13 @@ def train_one_epoch(
     model.train()
     running = 0.0
     for step, batch in enumerate(loader):
-        iris = batch.iris.to(device)
+        left = batch.left_iris.to(device)
+        right = batch.right_iris.to(device)
         fp = batch.fingerprint.to(device)
         y = batch.label.to(device)
 
         optimizer.zero_grad(set_to_none=True)
-        logits = model(iris, fp)
+        logits = model(left, right, fp)
         loss = criterion(logits, y)
         loss.backward()
         optimizer.step()
@@ -63,10 +64,11 @@ def evaluate(
     acc_sum = 0.0
     n = 0
     for batch in loader:
-        iris = batch.iris.to(device)
+        left = batch.left_iris.to(device)
+        right = batch.right_iris.to(device)
         fp = batch.fingerprint.to(device)
         y = batch.label.to(device)
-        logits = model(iris, fp)
+        logits = model(left, right, fp)
         loss = criterion(logits, y)
         loss_sum += float(loss.item())
         acc_sum += accuracy(logits, y)

@@ -43,7 +43,7 @@ _IMAGE_EXTS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 @dataclass(frozen=True)
 class _Partial:
     subject_id: str
-    modality: str  # "iris" | "fingerprint"
+    modality: str  # "left_iris" | "right_iris" | "fingerprint"
     path: str
 
 
@@ -86,14 +86,19 @@ def _guess_modality_from_relative(rel_parts: tuple[str, ...], stem_lower: str) -
         return "fingerprint"
 
     # Iris images live under "left" or "right".
-    if any(p in {"left", "right"} for p in parts):
-        return "iris"
+    if any(p == "left" for p in parts):
+        return "left_iris"
+    if any(p == "right" for p in parts):
+        return "right_iris"
 
     # Fallback heuristics (safe because rel parts won't include dataset root name).
     if "finger" in stem_lower:
         return "fingerprint"
-    if "iris" in stem_lower:
-        return "iris"
+    if "left" in stem_lower:
+        return "left_iris"
+    if "right" in stem_lower:
+        return "right_iris"
+
 
     return None
 
@@ -148,35 +153,41 @@ def build_manifest_distributed(
     ]
     partials = [p for p in ray.get(futures) if p is not None]
 
-    iris_by_sid: dict[str, list[str]] = {}
+    left_by_sid: dict[str, list[str]] = {}
+    right_by_sid: dict[str, list[str]] = {}
     fp_by_sid: dict[str, list[str]] = {}
 
     for item in partials:
-        if item.modality == "iris":
-            iris_by_sid.setdefault(item.subject_id, []).append(item.path)
+        if item.modality == "left_iris":
+            left_by_sid.setdefault(item.subject_id, []).append(item.path)
+        elif item.modality == "right_iris":
+            right_by_sid.setdefault(item.subject_id, []).append(item.path)
         elif item.modality == "fingerprint":
             fp_by_sid.setdefault(item.subject_id, []).append(item.path)
 
-    # Build manifest rows.
-    rows: list[dict[str, str]] = []
-    for sid in sorted(set(iris_by_sid) | set(fp_by_sid), key=lambda x: int(x) if x.isdigit() else x):
-        iris_list = sorted(iris_by_sid.get(sid, []))
-        fp_list = sorted(fp_by_sid.get(sid, []))
-        if not iris_list or not fp_list:
-            continue
+        rows: list[dict[str, str]] = []
+        for sid in sorted(set(left_by_sid) | set(right_by_sid) | set(fp_by_sid), key=lambda x: int(x) if x.isdigit() else x):
+            left_list = sorted(left_by_sid.get(sid, []))
+            right_list = sorted(right_by_sid.get(sid, []))
+            fp_list = sorted(fp_by_sid.get(sid, []))
+            if not left_list or not right_list or not fp_list:
+                continue
 
-        # Cartesian product per subject.
-        for iris_path in iris_list:
-            for fp_path in fp_list:
-                rows.append(
-                    {
-                        "subject_id": sid,
-                        "iris_path": iris_path,
-                        "fingerprint_path": fp_path,
-                    }
-                )
+            # best coverage: Cartesian product of all three
+            for left_path in left_list:
+                for right_path in right_list:
+                    for fp_path in fp_list:
+                        rows.append(
+                            {
+                                "subject_id": sid,
+                                "left_iris_path": left_path,
+                                "right_iris_path": right_path,
+                                "fingerprint_path": fp_path,
+                            }
+                        )
 
-    df = pd.DataFrame(rows, columns=["subject_id", "iris_path", "fingerprint_path"])
+    df = pd.DataFrame(rows, columns=["subject_id", "left_iris_path", "right_iris_path", "fingerprint_path"])
+
 
     # Fail fast if we didn't find any usable samples.
     if df.empty:

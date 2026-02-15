@@ -201,37 +201,52 @@ class Predictor:
         t = self.transform(img)  # C,H,W
         return t
 
-    def _prepare_inputs(self, iris_path: Path, fp_path: Path) -> tuple[torch.Tensor, torch.Tensor]:
-        iris = self._load_image_tensor(iris_path).unsqueeze(0).to(self.device)
-        fp = self._load_image_tensor(fp_path).unsqueeze(0).to(self.device)
-        return iris, fp
+    def _prepare_inputs(
+        self,
+        left_iris_path: Path,
+        right_iris_path: Path,
+        fingerprint_path: Path,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        left = self._load_image_tensor(left_iris_path).unsqueeze(0).to(self.device)
+        right = self._load_image_tensor(right_iris_path).unsqueeze(0).to(self.device)
+        fp = self._load_image_tensor(fingerprint_path).unsqueeze(0).to(self.device)
+        return left, right, fp
+
+
 
     @torch.inference_mode()
-    def predict_logits(self, iris_path: Path, fingerprint_path: Path) -> torch.Tensor:
-        iris, fp = self._prepare_inputs(iris_path, fingerprint_path)
-        logits = self.model(iris, fp)  # (1, num_classes)
+    def predict_logits(
+        self,
+        left_iris_path: Path,
+        right_iris_path: Path,
+        fingerprint_path: Path,
+    ) -> torch.Tensor:
+        left, right, fp = self._prepare_inputs(left_iris_path, right_iris_path, fingerprint_path)
+        logits = self.model(left, right, fp)
         return logits.squeeze(0)
 
+
+
     @torch.inference_mode()
-    def predict(self, iris_path: Path, fingerprint_path: Path) -> str:
-        logits = self.predict_logits(iris_path, fingerprint_path)
+    def predict(
+        self,
+        left_iris_path: Path,
+        right_iris_path: Path,
+        fingerprint_path: Path,
+    ) -> str:
+        logits = self.predict_logits(left_iris_path, right_iris_path, fingerprint_path)
         pred_idx = int(torch.argmax(logits).item())
-        return str(self.idx_to_label.get(pred_idx, str(pred_idx)))
+        return self.idx_to_label[pred_idx]
 
     @torch.inference_mode()
-    def predict_topk(self, iris_path: Path, fingerprint_path: Path, k: int = 5) -> list[dict[str, Any]]:
-        logits = self.predict_logits(iris_path, fingerprint_path)
-        probs = torch.softmax(logits, dim=-1)
-
-        k = max(1, min(int(k), probs.numel()))
-        vals, idxs = torch.topk(probs, k=k)
-
-        out: list[dict[str, Any]] = []
-        for score, idx in zip(vals.tolist(), idxs.tolist(), strict=False):
-            out.append(
-                {
-                    "subject_id": str(self.idx_to_label.get(int(idx), str(idx))),
-                    "prob": float(score),
-                }
-            )
-        return out
+    def predict_topk(
+        self,
+        left_iris_path: Path,
+        right_iris_path: Path,
+        fingerprint_path: Path,
+        k: int = 5,
+    ) -> list[dict[str, float]]:
+        logits = self.predict_logits(left_iris_path, right_iris_path, fingerprint_path)
+        probs = torch.softmax(logits, dim=0)
+        top_probs, top_idx = torch.topk(probs, k=min(k, probs.numel()))
+        return [{"subject_id": self.idx_to_label[int(i)], "prob": float(p)} for p, i in zip(top_probs, top_idx)]

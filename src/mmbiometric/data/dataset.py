@@ -15,7 +15,8 @@ Transform = Callable[[Image.Image], torch.Tensor]
 
 @dataclass(frozen=True)
 class Sample:
-    iris: torch.Tensor
+    left_iris: torch.Tensor
+    right_iris: torch.Tensor
     fingerprint: torch.Tensor
     label: torch.Tensor
 
@@ -30,10 +31,12 @@ def collate_samples(batch: list[Sample]) -> Sample:
     if not batch:
         raise ValueError("Empty batch")
 
-    iris = torch.stack([s.iris for s in batch], dim=0)
+    left = torch.stack([s.left_iris for s in batch], dim=0)
+    right = torch.stack([s.right_iris for s in batch], dim=0)
     fingerprint = torch.stack([s.fingerprint for s in batch], dim=0)
     labels = torch.stack([s.label for s in batch], dim=0)
-    return Sample(iris=iris, fingerprint=fingerprint, label=labels)
+    return Sample(left_iris=left, right_iris=right, fingerprint=fingerprint, label=labels)
+
 
 
 class MultimodalBiometricDataset(Dataset[Sample]):
@@ -56,11 +59,13 @@ class MultimodalBiometricDataset(Dataset[Sample]):
 
     def __getitem__(self, idx: int) -> Sample:
         row = self.df.iloc[idx]
-        iris_img = Image.open(row["iris_path"]).convert("RGB")
+        left_img = Image.open(row["left_iris_path"]).convert("RGB")
+        right_img = Image.open(row["right_iris_path"]).convert("RGB")
         fp_img = Image.open(row["fingerprint_path"]).convert("RGB")
         y = torch.tensor(self.label_to_index[str(row["subject_id"])], dtype=torch.long)
         return Sample(
-            iris=self.iris_transform(iris_img),
+            left_iris=self.iris_transform(left_img),
+            right_iris=self.iris_transform(right_img),
             fingerprint=self.fingerprint_transform(fp_img),
             label=y,
         )

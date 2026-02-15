@@ -30,8 +30,10 @@ PREDICTOR: Predictor | None = None
 
 # Define FastAPI dependencies at module level to avoid calling ``File()``
 # in default parameter values.  This satisfies Ruff's B008 rule.
-_iris_file: File = File(...)
+_left_iris_file: File = File(...)
+_right_iris_file: File = File(...)
 _fp_file: File = File(...)
+
 
 
 def _load_predictor() -> Predictor:
@@ -81,9 +83,11 @@ def startup() -> None:
 
 @app.post("/predict")
 async def predict(
-    iris: Annotated[UploadFile, _iris_file],
+    left_iris: Annotated[UploadFile, _left_iris_file],
+    right_iris: Annotated[UploadFile, _right_iris_file],
     fingerprint: Annotated[UploadFile, _fp_file],
 ) -> dict[str, str]:
+
     """Predict a subject ID given an iris and fingerprint image.
 
     The ``File`` dependency is provided via ``Annotated`` rather than as a
@@ -94,7 +98,9 @@ async def predict(
         raise HTTPException(status_code=500, detail="Predictor not initialized")
 
     # Read uploaded images into PIL.Image
-    iris_img = Image.open(io.BytesIO(await iris.read()))
+    left_img = Image.open(io.BytesIO(await left_iris.read()))
+    right_img = Image.open(io.BytesIO(await right_iris.read()))
     fp_img = Image.open(io.BytesIO(await fingerprint.read()))
-    pred = PREDICTOR.predict_one(iris_img, fp_img)
+    pred = PREDICTOR.predict_one(left_img, right_img, fp_img)
+
     return {"prediction": pred}

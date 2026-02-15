@@ -106,32 +106,36 @@ class Predictor:
         """
         return default_image_transform(image_size=self.image_size)
 
-    def _preprocess(self, iris_img: Image.Image, fingerprint_img: Image.Image):
+    def _preprocess(self, left_iris_img: Image.Image, right_iris_img: Image.Image, fingerprint_img: Image.Image):
         tfm = self._image_transform()
-
-        iris_t = tfm(iris_img).unsqueeze(0).to(self.device)
+        left_t = tfm(left_iris_img).unsqueeze(0).to(self.device)
+        right_t = tfm(right_iris_img).unsqueeze(0).to(self.device)
         fp_t = tfm(fingerprint_img).unsqueeze(0).to(self.device)
-        return iris_t, fp_t
+        return left_t, right_t, fp_t
 
-    def predict_one(self, iris_img: Image.Image, fingerprint_img: Image.Image) -> str:
-        """
-        Predict a subject label for a single (iris, fingerprint) pair, given PIL Images.
-        Returns the predicted subject_id (label string).
-        """
-        iris_t, fp_t = self._preprocess(iris_img, fingerprint_img)
+
+    def predict_one(self, left_iris_img: Image.Image, right_iris_img: Image.Image, fingerprint_img: Image.Image) -> str:
+        left_t, right_t, fp_t = self._preprocess(left_iris_img, right_iris_img, fingerprint_img)
         with torch.no_grad():
-            logits = self.model(iris_t, fp_t)
+            logits = self.model(left_t, right_t, fp_t)
             pred_idx = int(torch.argmax(logits, dim=1).item())
         return self.idx_to_label[pred_idx]
 
-    def predict(self, iris_path: Path, fingerprint_path: Path) -> str:
-        """
-        Convenience wrapper used by the CLI:
-        takes file paths, loads images, and calls predict_one().
-        """
-        iris_img = Image.open(iris_path).convert("RGB")
+
+    def predict(self, left_iris_path: Path, right_iris_path: Path, fingerprint_path: Path) -> str:
+        left_img = Image.open(left_iris_path).convert("RGB")
+        right_img = Image.open(right_iris_path).convert("RGB")
         fp_img = Image.open(fingerprint_path).convert("RGB")
-        return self.predict_one(iris_img=iris_img, fingerprint_img=fp_img)
+        return self.predict_one(left_img, right_img, fp_img)
+
+    def predict_logits(self, left_iris_path: Path, right_iris_path: Path, fingerprint_path: Path) -> torch.Tensor:
+        left_img = Image.open(left_iris_path).convert("RGB")
+        right_img = Image.open(right_iris_path).convert("RGB")
+        fp_img = Image.open(fingerprint_path).convert("RGB")
+        left_t, right_t, fp_t = self._preprocess(left_img, right_img, fp_img)
+        with torch.no_grad():
+            logits = self.model(left_t, right_t, fp_t).squeeze(0)
+        return logits
 
 
 # -----------------------------------------------------------------------------
