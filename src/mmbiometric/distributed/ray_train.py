@@ -382,11 +382,12 @@ def _train_loop_per_worker(config: dict):
 
         with torch.no_grad():
             for batch in val_loader:
-                iris = batch.iris.to(device)
+                left = batch.left_iris.to(device)
+                right = batch.right_iris.to(device)
                 fp = batch.fingerprint.to(device)
                 y = batch.label.to(device)
+                logits = model(left, right, fp)
 
-                logits = model(iris, fp)
                 loss = criterion(logits, y)
 
                 bs = float(y.numel())
