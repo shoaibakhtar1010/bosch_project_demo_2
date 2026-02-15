@@ -142,6 +142,59 @@ def _setup_pg_debug(
 
 
 @dataclass
+class PatchedTorchConfig(TorchConfig):
+    master_addr: str = "127.0.0.1"
+    master_port: int = 29500
+    gloo_socket_ifname: str = ""
+    gloo_socket_family: str = "AF_INET"
+    use_libuv: int = 0
+
+    @property
+    def backend_cls(self):
+        return _PatchedTorchBackend
+
+
+class _PatchedTorchBackend(_TorchBackend):
+    def on_start(self, worker_group, backend_config: PatchedTorchConfig):
+        master_addr = _sanitize_master_addr(backend_config.master_addr)
+        master_port = (
+            int(backend_config.master_port) if backend_config.master_port else _pick_free_port()
+        )
+        init_method = backend_config.init_method or f"tcp://{master_addr}:{master_port}"
+
+        worker_group.execute(
+            _set_env,
+            master_addr=master_addr,
+            master_port=master_port,
+            gloo_ifname=(backend_config.gloo_socket_ifname or ""),
+            gloo_family=(backend_config.gloo_socket_family or "AF_INET"),
+            use_libuv=int(backend_config.use_libuv),
+        )
+
+        setup_futures = []
+        world_size = getattr(worker_group, "num_workers", None)
+        if world_size is None:
+            try:
+                world_size = len(worker_group)
+            except Exception:
+                world_size = len(worker_group.get_workers())
+
+        for rank in range(world_size):
+            setup_futures.append(
+                worker_group.execute_single_async(
+                    rank,
+                    _setup_pg_debug,
+                    backend=backend_config.backend,
+                    world_rank=rank,
+                    world_size=world_size,
+                    init_method=init_method,
+                    timeout_s=backend_config.timeout_s,
+                )
+            )
+        ray.get(setup_futures)
+
+
+@dataclass
 class RayTrainArgs:
     config_path: str
     dataset_dir: str
@@ -373,7 +426,7 @@ def _train_loop_per_worker(config: dict):
                 encoding="utf-8",
             )
 
-        # Build metrics dictionary
+        # Corrected metrics reporting: construct a metrics dict and call train.report.
         if rank == 0:
             metrics = {
                 "epoch": epoch,
@@ -382,7 +435,6 @@ def _train_loop_per_worker(config: dict):
                 "val_acc": float(val_acc),
                 "best_val_acc": float(best_acc),
             }
-            # Report metrics via Ray Train v2 API; fallback to air.session.report if necessary.
             try:
                 train.report(metrics)
             except Exception:
